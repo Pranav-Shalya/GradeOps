@@ -1,0 +1,11 @@
+# .gitignore
+node_modules/
+__pycache__/
+*.pyc
+.env
+venv/
+env/
+backend/data/uploads/*
+backend/data/crops/*
+!data/uploads/.gitkeep
+!data/crops/.gitkeep
