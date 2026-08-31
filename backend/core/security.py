@@ -3,11 +3,22 @@ import os
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional, List
-from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 from core.database import db
+
+# Dual support for python-jose and PyJWT
+try:
+    from jose import JWTError, jwt
+except ImportError:
+    try:
+        import jwt
+        JWTError = getattr(jwt, "PyJWTError", Exception)
+    except ImportError:
+        jwt = None
+        class JWTError(Exception):
+            pass
 
 load_dotenv()
 

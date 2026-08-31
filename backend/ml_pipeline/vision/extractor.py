@@ -1,24 +1,55 @@
 # backend/ml_pipeline/vision/extractor.py
 import os
-import fitz  # PyMuPDF
 from PIL import Image
 import io
 import base64
-from google import genai
-from groq import Groq
-from dotenv import load_dotenv
 from typing import Dict, List, Optional, Tuple
+from dotenv import load_dotenv
+
+# Safe PyMuPDF import
+try:
+    import fitz
+except ImportError:
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        fitz = None
+
+# Safe Gemini Client import
+try:
+    from google import genai
+except ImportError:
+    genai = None
+
+# Safe Groq Client import
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
 
 # Load environment variables
 load_dotenv()
 
 class VisionExtractor:
     def __init__(self):
-        # Initialize the new Gemini Client
-        self.gemini_client = genai.Client()
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if genai:
+            try:
+                self.gemini_client = genai.Client(api_key=api_key) if api_key else genai.Client()
+            except Exception:
+                self.gemini_client = None
+        else:
+            self.gemini_client = None
         
-        # Initialize the Groq Client for fallback
-        self.groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        # Initialize Groq Client for fallback if available
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if Groq and groq_api_key:
+            try:
+                self.groq_client = Groq(api_key=groq_api_key)
+            except Exception:
+                self.groq_client = None
+        else:
+            self.groq_client = None
         
         self.crop_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 

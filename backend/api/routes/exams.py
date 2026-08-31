@@ -5,7 +5,13 @@ import zipfile
 import asyncio
 import shutil
 from typing import List, Optional
-import fitz
+try:
+    import fitz
+except ImportError:
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        fitz = None
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Body, Response, BackgroundTasks, Depends, status
 from api.dependencies import get_current_user, RoleChecker
 from core.database import db

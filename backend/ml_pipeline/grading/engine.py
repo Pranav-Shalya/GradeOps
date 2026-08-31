@@ -6,10 +6,20 @@ import base64
 from typing import List, Dict, Optional
 from PIL import Image
 from pydantic import BaseModel, Field
-from google import genai
-from groq import Groq
 from dotenv import load_dotenv
 from ml_pipeline.grading.similarity import get_embedding, compute_cosine_similarity
+
+# Safe Gemini Client import
+try:
+    from google import genai
+except ImportError:
+    genai = None
+
+# Safe Groq Client import
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
 
 load_dotenv()
 
@@ -45,9 +55,25 @@ class UnifiedGradingResult(BaseModel):
 
 class GradingEngine:
     def __init__(self):
-        # Initialize primary and fallback clients
-        self.gemini_client = genai.Client()
-        self.groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        # Initialize primary Gemini client
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if genai:
+            try:
+                self.gemini_client = genai.Client(api_key=api_key) if api_key else genai.Client()
+            except Exception:
+                self.gemini_client = None
+        else:
+            self.gemini_client = None
+
+        # Initialize fallback Groq client
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if Groq and groq_api_key:
+            try:
+                self.groq_client = Groq(api_key=groq_api_key)
+            except Exception:
+                self.groq_client = None
+        else:
+            self.groq_client = None
 
     # =========================================================================
     # MULTIMODAL COLLAPSE (Unified Single-Call Ingestion & Grading)
