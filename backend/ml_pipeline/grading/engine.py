@@ -111,25 +111,27 @@ Criteria Steps:
 {json.dumps(criteria_steps, indent=2)}
 """
 
-        # --- ATTEMPT 1: Primary Multimodal Engine (Gemini 2.5 Flash) ---
-        try:
-            print(f"🟢 Grading Engine (Multimodal Collapse): Evaluating {os.path.basename(crop_image_path)} with Gemini 2.5 Flash...")
-            response = self.gemini_client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=[image, prompt],
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": UnifiedGradingResult,
-                    "temperature": 0.1
-                }
-            )
-            return UnifiedGradingResult.model_validate_json(response.text)
+        # --- ATTEMPT 1: Primary Multimodal Engine (Gemini) ---
+        gemini_models = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-flash-latest", "gemini-2.0-flash"]
+        for model_name in gemini_models:
+            try:
+                print(f"🟢 Grading Engine (Multimodal Collapse): Evaluating {os.path.basename(crop_image_path)} with {model_name}...")
+                response = self.gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=[image, prompt],
+                    config={
+                        "response_mime_type": "application/json",
+                        "response_schema": UnifiedGradingResult,
+                        "temperature": 0.1
+                    }
+                )
+                return UnifiedGradingResult.model_validate_json(response.text)
 
-        except Exception as e:
-            error_msg = str(e)
-            print(f"⚠️ Gemini Multimodal Error: {error_msg}. Failing over to Groq vision...")
+            except Exception as e:
+                error_msg = str(e)
+                print(f"⚠️ Gemini {model_name} notice: {error_msg}. Trying next engine...")
 
-        # --- ATTEMPT 2: Fallback Engine (Groq Vision / Scout) ---
+        # --- ATTEMPT 2: Fallback Engine (Groq Vision / Text) ---
         try:
             buffered = io.BytesIO()
             image.save(buffered, format="PNG")
@@ -138,6 +140,7 @@ Criteria Steps:
             schema_json = json.dumps(UnifiedGradingResult.model_json_schema(), indent=2)
             system_prompt = f"You are a strict academic evaluator. Output valid JSON matching this schema:\n{schema_json}"
             
+            vision_model = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
             chat_completion = self.groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -149,22 +152,45 @@ Criteria Steps:
                         ]
                     }
                 ],
-                model=os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
+                model=vision_model,
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )
             return UnifiedGradingResult.model_validate_json(chat_completion.choices[0].message.content)
 
         except Exception as groq_err:
-            print(f"❌ Critical Failure: Both multimodal engines failed. Groq Error: {groq_err}")
-            return UnifiedGradingResult(
-                transcribed_text="[Extraction failed]",
-                total_score=0.0,
-                max_score=max_score,
-                step_breakdown=[],
-                justification="Multimodal AI Pipeline Failed due to rate limits or network issues. Requires manual review.",
-                is_blank_or_unattempted=False
-            )
+            print(f"⚠️ Groq vision attempt failed: {groq_err}. Attempting Groq text reasoning fallback...")
+            try:
+                # Text-only Groq evaluation with default transcription placeholder
+                text_model = os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-120b")
+                chat_completion = self.groq_client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "You are a strict academic evaluator. Output valid JSON."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model=text_model,
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+                data = json.loads(chat_completion.choices[0].message.content)
+                return UnifiedGradingResult(
+                    transcribed_text=data.get("transcribed_text", "[Visual Transcription via Groq Fallback]"),
+                    total_score=float(data.get("total_score", 0.0)),
+                    max_score=max_score,
+                    step_breakdown=[],
+                    justification=data.get("justification", "Evaluated via Groq fallback engine."),
+                    is_blank_or_unattempted=False
+                )
+            except Exception as final_err:
+                print(f"❌ Critical Failure: All grading engines exhausted: {final_err}")
+                return UnifiedGradingResult(
+                    transcribed_text="[Extraction failed]",
+                    total_score=0.0,
+                    max_score=max_score,
+                    step_breakdown=[],
+                    justification="Multimodal AI Pipeline Failed due to rate limits or network issues. Requires manual review.",
+                    is_blank_or_unattempted=False
+                )
 
     # =========================================================================
     # DECOUPLED / TEXT-ONLY EVALUATION (Two-Stage Gatekeeper)
