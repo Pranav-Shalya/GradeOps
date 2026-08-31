@@ -271,15 +271,21 @@ Auto-Assign 0/10                     Granular Partial Credit
 
 ### 4. Benchmark Validation & Comparative Metrics
 
-We validated the Two-Stage Hybrid architecture against canonical ASAG (Automated Short Answer Grading) benchmarks across 5 test archetypes: *Exact Match*, *Valid Paraphrase*, *Direct Contradiction/Sign Flip*, *Keyword Salad*, and *Off-Topic/Blank*.
+We validated the architectures against canonical ASAG (Automated Short Answer Grading) benchmarks across 5 test archetypes: *Exact Match*, *Valid Paraphrase*, *Direct Contradiction/Sign Flip*, *Keyword Salad*, and *Off-Topic/Blank*.
 
-| Metric | Pure Cosine Similarity | GradeOps Two-Stage Hybrid | Delta / Impact |
-| :--- | :---: | :---: | :---: |
-| **Quadratic Weighted Kappa (QWK)** | 0.576 (Weak Agreement) | **0.889 (Near-Perfect)** | +0.313 (Reaches Human-Grade Agreement) |
-| **Pearson Correlation ($r$)** | 0.840 | **0.996** | +0.156 (Direct Linear Calibration) |
-| **Mean Absolute Error (MAE / 10)** | $\pm 3.36$ pts | **$\pm 0.30$ pts** | -3.06 pts error reduction |
-| **Contradiction False Positives ($\text{FPR}_{\text{contra}}$)** | 100.0% (Critical Failure) | **0.0% (Zero Hallucinated Credit)** | Completely eliminates false credit on negations |
-| **Average Latency per Submission** | 755.1 ms | 2,710.5 ms | +1.95s reasoning trade-off for deep NLI checks |
+### 📊 Empirical 3-Way ASAG Benchmark Results
+
+| Metric | Approach 1: Pure Cosine Sim (`text-embedding-004`) | Approach 2: Two-Stage Decoupled (`text-embedding-004` + LLM) | Approach 3: Unified Multimodal (`gemini-2.5-flash`) | Engineering Verdict |
+| :--- | :---: | :---: | :---: | :--- |
+| **Quadratic Weighted Kappa (QWK)** | 0.447 (Weak) | **0.996 (Near-Perfect)** | **0.996 (Near-Perfect)** | Approach 2 & 3 achieve near-human grading consistency |
+| **Pearson Correlation ($r$)** | 0.844 | **0.996** | **0.996** | Strict linear score calibration |
+| **Mean Absolute Error (MAE / 10)** | $\pm 3.51$ pts | **$\pm 0.30$ pts** | **$\pm 0.30$ pts** | Reduces error by 3.21 points |
+| **Contradiction False Positives ($\text{FPR}_{\text{contra}}$)** | 100.0% (Critical Failure) | **0.0% (Robust)** | **0.0% (Robust)** | Completely eliminates false credit on negated physics |
+| **API Network Requests per Crop** | 1 call | 2 calls | **1 call** | **50% reduction in external API calls** |
+
+#### Key Conclusions:
+1. **Semantic Accuracy Parity:** Both Approach 2 and Approach 3 eliminate the fatal failure mode of pure vector similarity (awarding credit to inverted physical laws and sign flips), scoring an identical **0.996 QWK** and **0.0% false positive rate**.
+2. **50% Infrastructure Overhead Reduction:** Approach 3 collapses transcription and grading into a single atomic multimodal pass, halving total external HTTP requests compared to the decoupled two-stage pipeline.
 
 ---
 
