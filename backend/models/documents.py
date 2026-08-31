@@ -5,8 +5,8 @@ from datetime import datetime
 from enum import Enum
 
 class UserRole(str, Enum):
-    INSTRUCTOR = "instructor"
-    TA = "ta"
+    INSTRUCTOR = "INSTRUCTOR"
+    TA = "TA"
 
 # --- EMBEDDED SCHEMAS ---
 
@@ -17,7 +17,7 @@ class RubricCriteria(BaseModel):
 
 class GradedAnswer(BaseModel):
     rubric_question_number: str
-    crop_image_path: str       # Path to the cropped answer box image
+    crop_image_path: Optional[str] = None
     transcribed_text: Optional[str] = None
     
     # AI Proposal Engine Outputs
@@ -25,6 +25,8 @@ class GradedAnswer(BaseModel):
     ai_justification: Optional[str] = None
     plagiarism_flag: bool = False
     similarity_score: float = 0.0
+    similarity_flag: bool = False
+    similarity_matches: List[str] = []
     
     # Human Override States
     final_score: Optional[float] = None
@@ -37,6 +39,9 @@ class UserDocument(BaseModel):
     email: EmailStr
     hashed_password: str
     role: UserRole = UserRole.TA
+    full_name: Optional[str] = None
+    instructor_id: Optional[str] = None # Link TA to their professor's User ID
+    access_code: Optional[str] = None   # Unique invite code generated for INSTRUCTORs
 
 class ExamDocument(BaseModel):
     title: str

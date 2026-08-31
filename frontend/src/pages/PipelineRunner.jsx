@@ -110,7 +110,7 @@ export default function PipelineRunner() {
                             {/* The Backend Page Image */}
                             <img 
                                 ref={imageRef}
-                                src={`http://127.0.0.1:8000/api/exams/${examId}/pages/${pageNum}`} 
+                                src={`http://127.0.0.1:8001/api/exams/${examId}/pages/${pageNum}`} 
                                 alt={`Page ${pageNum}`} 
                                 style={{ display: 'block', maxWidth: '100%', userSelect: 'none' }}
                                 draggable={false}

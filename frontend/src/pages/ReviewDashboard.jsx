@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { examService } from '../services/api';
-import { CheckCircle, Crop, AlertCircle, Save, Edit3 } from 'lucide-react';
+import { CheckCircle, Crop, AlertCircle, Save, Edit3, AlertTriangle } from 'lucide-react';
 
 export default function ReviewDashboard() {
     const [searchParams] = useSearchParams();
@@ -25,6 +25,7 @@ export default function ReviewDashboard() {
     const [regrading, setRegrading] = useState(false);
 
     const imageRef = useRef(null);
+    const scoreInputRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [startPos, setStartPos] = useState({ x: 0, y: 0 });
     const [cropBox, setCropBox] = useState(null);
@@ -104,7 +105,7 @@ export default function ReviewDashboard() {
                 setActiveQuestion(Object.keys(grades)[0]);
             }
             
-            const imgRes = await fetch(`http://127.0.0.1:8000/api/exams/${eId}/submissions/${sId}/pages/0`);
+            const imgRes = await fetch(`http://127.0.0.1:8001/api/exams/${eId}/submissions/${sId}/pages/0`);
             if (imgRes.ok) {
                 const blob = await imgRes.blob();
                 setPageImage(URL.createObjectURL(blob));
@@ -165,7 +166,59 @@ export default function ReviewDashboard() {
         }
     };
 
-    const handleCommitGrade = async () => {
+    const navigateStudent = (direction) => {
+        if (!roster || roster.length === 0) return;
+        const currentIndex = roster.findIndex(s => s.submission_id === studentId);
+        let targetIndex = -1;
+
+        if (direction === 'next') {
+            if (currentIndex === -1) {
+                targetIndex = 0;
+            } else if (currentIndex < roster.length - 1) {
+                targetIndex = currentIndex + 1;
+            }
+        } else if (direction === 'prev') {
+            if (currentIndex > 0) {
+                targetIndex = currentIndex - 1;
+            }
+        }
+
+        if (targetIndex !== -1 && targetIndex < roster.length) {
+            const targetStudent = roster[targetIndex];
+            setStudentId(targetStudent.submission_id);
+            setCropBox(null);
+            handleLoadStudent(examId, targetStudent.submission_id);
+        }
+    };
+
+    const navigateQuestion = (direction) => {
+        if (!studentData || !studentData.grades) return;
+        const questions = Object.keys(studentData.grades);
+        if (questions.length === 0) return;
+
+        const currentIndex = questions.indexOf(activeQuestion);
+        let targetIndex = -1;
+
+        if (direction === 'prev') {
+            if (currentIndex > 0) {
+                targetIndex = currentIndex - 1;
+            }
+        } else if (direction === 'next') {
+            if (currentIndex === -1) {
+                targetIndex = 0;
+            } else if (currentIndex < questions.length - 1) {
+                targetIndex = currentIndex + 1;
+            }
+        }
+
+        if (targetIndex !== -1 && targetIndex < questions.length) {
+            setActiveQuestion(questions[targetIndex]);
+            setCropBox(null);
+        }
+    };
+
+    const handleCommitGrade = async (advanceAfter = false) => {
+        if (!studentData || !activeQuestion || !studentData.grades?.[activeQuestion]) return;
         try {
             const currentGrade = studentData.grades[activeQuestion];
             const payload = {
@@ -180,9 +233,23 @@ export default function ReviewDashboard() {
                 ...prev,
                 grades: { ...prev.grades, [activeQuestion]: { ...currentGrade, status: 'human_verified' } }
             }));
+
+            if (advanceAfter) {
+                navigateStudent('next');
+            }
             
         } catch (error) {
             alert("Failed to lock grade.");
+        }
+    };
+
+    const handleAcceptAndNext = async () => {
+        if (!studentData || !activeQuestion || !studentData.grades?.[activeQuestion]) return;
+        const currentGrade = studentData.grades[activeQuestion];
+        if (currentGrade.status !== 'human_verified') {
+            await handleCommitGrade(true);
+        } else {
+            navigateStudent('next');
         }
     };
 
@@ -209,10 +276,78 @@ export default function ReviewDashboard() {
 
     const isLocked = activeQuestion && studentData?.grades[activeQuestion]?.status === 'human_verified';
 
+    // --- KEYBOARD SHORTCUTS FOR RAPID TA WORKBENCH ---
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            const activeElement = document.activeElement;
+            const isInputActive =
+                activeElement &&
+                (activeElement.tagName === 'INPUT' ||
+                 activeElement.tagName === 'TEXTAREA' ||
+                 activeElement.isContentEditable ||
+                 activeElement.getAttribute('contenteditable') === 'true');
+
+            // Critical Guardrail: return early if typing in input, textarea, or contentEditable
+            if (isInputActive) {
+                return;
+            }
+
+            // 1. Enter or A: Approve/accept AI grade and automatically advance to next student
+            if (e.key === 'Enter' || e.key === 'a' || e.key === 'A') {
+                e.preventDefault();
+                handleAcceptAndNext();
+            }
+            // 2. ArrowRight or J: Next student submission
+            else if (e.key === 'ArrowRight' || e.key === 'j' || e.key === 'J') {
+                e.preventDefault();
+                navigateStudent('next');
+            }
+            // ArrowLeft or K: Previous student submission
+            else if (e.key === 'ArrowLeft' || e.key === 'k' || e.key === 'K') {
+                e.preventDefault();
+                navigateStudent('prev');
+            }
+            // 3. ArrowUp or W: Previous question for current student
+            else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                e.preventDefault();
+                navigateQuestion('prev');
+            }
+            // 4. ArrowDown or S: Next question for current student
+            else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+                e.preventDefault();
+                navigateQuestion('next');
+            }
+            // 5. E: Focus the manual score override input field
+            else if (e.key === 'e' || e.key === 'E') {
+                e.preventDefault();
+                if (scoreInputRef.current && !isLocked) {
+                    scoreInputRef.current.focus();
+                    scoreInputRef.current.select();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [studentData, activeQuestion, studentId, examId, roster, isLocked]);
+
     return (
         <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h1 style={{ color: '#1e293b', margin: 0 }}>TA Workbench</h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                    <h1 style={{ color: '#1e293b', margin: 0 }}>TA Workbench</h1>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
+                        <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}>Enter / A</span> Accept & Next
+                        <span style={{ margin: '0 2px' }}>•</span>
+                        <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}>← / → (J/K)</span> Students
+                        <span style={{ margin: '0 2px' }}>•</span>
+                        <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}>↑ / ↓ (W/S)</span> Questions
+                        <span style={{ margin: '0 2px' }}>•</span>
+                        <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}>E</span> Edit Score
+                    </div>
+                </div>
                 <button onClick={() => navigate(`/roster?exam=${examId}`)} style={{ background: '#f1f5f9', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
                     Back to Ledger
                 </button>
@@ -301,21 +436,34 @@ export default function ReviewDashboard() {
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflow: 'auto' }}>
                         
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            {Object.keys(studentData.grades || {}).map(qKey => (
-                                <button 
-                                    key={qKey} 
-                                    onClick={() => { setActiveQuestion(qKey); setCropBox(null); }}
-                                    style={{ 
-                                        padding: '0.5rem 1rem', borderRadius: '4px', fontWeight: 'bold', 
-                                        border: activeQuestion === qKey ? 'none' : '1px solid #cbd5e1',
-                                        background: activeQuestion === qKey ? '#3b82f6' : 'white',
-                                        color: activeQuestion === qKey ? 'white' : '#475569',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    Q {qKey}
-                                </button>
-                            ))}
+                            {Object.keys(studentData.grades || {}).map(qKey => {
+                                const qData = studentData.grades[qKey];
+                                const hasSimilarity = qData?.similarity_flag || qData?.plagiarism_flag;
+                                return (
+                                    <button 
+                                        key={qKey} 
+                                        onClick={() => { setActiveQuestion(qKey); setCropBox(null); }}
+                                        style={{ 
+                                            padding: '0.5rem 1rem', borderRadius: '4px', fontWeight: 'bold', 
+                                            border: activeQuestion === qKey ? 'none' : '1px solid #cbd5e1',
+                                            background: activeQuestion === qKey ? '#3b82f6' : 'white',
+                                            color: activeQuestion === qKey ? 'white' : '#475569',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.35rem'
+                                        }}
+                                    >
+                                        Q {qKey}
+                                        {hasSimilarity && (
+                                            <span 
+                                                style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block' }} 
+                                                title="High logic similarity detected" 
+                                            />
+                                        )}
+                                    </button>
+                                );
+                            })}
                         </div>
 
                         {activeQuestion && studentData.grades[activeQuestion] && (
@@ -332,6 +480,7 @@ export default function ReviewDashboard() {
                                     
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                         <input 
+                                            ref={scoreInputRef}
                                             type="number"
                                             value={studentData.grades[activeQuestion].total_score === '' ? '' : studentData.grades[activeQuestion].total_score}
                                             onChange={handleScoreOverride}
@@ -346,6 +495,65 @@ export default function ReviewDashboard() {
                                         <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#64748b' }}>pts</span>
                                     </div>
                                 </div>
+                                
+                                {/* Plagiarism & Logic Similarity Warning Banner */}
+                                {(studentData.grades[activeQuestion]?.similarity_flag || studentData.grades[activeQuestion]?.plagiarism_flag) && (
+                                    <div style={{
+                                        background: '#fffbeb',
+                                        border: '1px solid #fcd34d',
+                                        borderRadius: '6px',
+                                        padding: '0.85rem 1rem',
+                                        marginBottom: '1rem',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '0.4rem'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#b45309', fontWeight: 'bold' }}>
+                                            <AlertTriangle size={18} color="#d97706" />
+                                            <span>⚠️ High Logic Similarity Detected</span>
+                                            {studentData.grades[activeQuestion]?.similarity_score > 0 && (
+                                                <span style={{
+                                                    fontSize: '0.75rem',
+                                                    background: '#fef3c7',
+                                                    color: '#92400e',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    marginLeft: 'auto',
+                                                    fontWeight: 'bold'
+                                                }}>
+                                                    {(studentData.grades[activeQuestion].similarity_score * 100).toFixed(1)}% match
+                                                </span>
+                                            )}
+                                        </div>
+                                        {Array.isArray(studentData.grades[activeQuestion]?.similarity_matches) && studentData.grades[activeQuestion].similarity_matches.length > 0 && (
+                                            <div style={{ fontSize: '0.85rem', color: '#92400e', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                <span>Matches found with:</span>
+                                                {studentData.grades[activeQuestion].similarity_matches.map((matchedId, idx) => (
+                                                    <span 
+                                                        key={idx}
+                                                        onClick={() => {
+                                                            setStudentId(matchedId);
+                                                            handleLoadStudent(examId, matchedId);
+                                                        }}
+                                                        title="Click to view this matching student submission"
+                                                        style={{
+                                                            background: '#fef3c7',
+                                                            color: '#78350f',
+                                                            padding: '2px 8px',
+                                                            borderRadius: '4px',
+                                                            fontWeight: '600',
+                                                            cursor: 'pointer',
+                                                            border: '1px solid #fde68a',
+                                                            textDecoration: 'underline'
+                                                        }}
+                                                    >
+                                                        {matchedId}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 
                                 <textarea 
                                     value={studentData.grades[activeQuestion].justification}

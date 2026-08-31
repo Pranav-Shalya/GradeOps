@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: 'http://127.0.0.1:8000/api', 
+    baseURL: 'http://127.0.0.1:8001/api', 
 });
 
 // --- BULLETPROOF AXIOS INTERCEPTOR ---
@@ -30,6 +30,15 @@ export const authService = {
     },
     register: (userData) => {
         return api.post('/auth/register', userData);
+    },
+    getMe: () => {
+        return api.get('/auth/me');
+    }
+};
+
+export const teamService = {
+    getTeamActivity: () => {
+        return api.get('/team/activity');
     }
 };
 
@@ -72,6 +81,23 @@ export const examService = {
     // 7. Grade Runner: Lock in the final human-verified grade
     commitGrade: (examId, submissionId, payload) => {
         return api.put(`/exams/${examId}/submissions/${submissionId}/commit`, payload);
+    },
+
+    // 8. Plagiarism & Similarity: Trigger cross-submission check
+    runPlagiarismCheck: (examId) => {
+        return api.post(`/exams/${examId}/run-plagiarism-check`);
+    },
+
+    // 9. Rubric Agent: Auto-generate JSON rubric from blank exam & answer key
+    generateRubric: (formData) => {
+        return api.post('/exams/generate-rubric', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
+
+    // 10. Exam Deletion: Cascading delete of exam and submissions
+    deleteExam: (examId) => {
+        return api.delete(`/exams/${examId}`);
     }
 };
 

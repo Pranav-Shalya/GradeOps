@@ -26,23 +26,32 @@ class GradingEngine:
         self.gemini_client = genai.Client()
         self.groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-    async def evaluate_answer(self, transcribed_text: str, rubric: Dict) -> EvaluationResult:
+    async def evaluate_answer(self, transcribed_text: str, rubric: Dict, answer_key_text: str = None) -> EvaluationResult:
         """
-        Evaluates a transcribed student answer against a specific question's rubric.
+        Evaluates a transcribed student answer against the reference answer key and specific question rubric.
         Fails over to Groq Llama 3.3 if Gemini hits a rate limit.
         """
-        
-        prompt = f"""
-        You are an expert academic evaluator. Grade the following student answer based strictly on the provided rubric. 
-        Be fair but rigorous. Award partial credit only if the specific step conditions are explicitly met.
+        ref_key = answer_key_text or rubric.get('reference_answer') or rubric.get('solution') or rubric.get('answer_key') or "Standard academic solution corresponding to the rubric criteria."
 
-        --- RUBRIC CRITERIA ---
+        prompt = f"""
+        You are an expert academic grader evaluating a student's answer.
+
+        [REFERENCE ANSWER KEY]
+        {ref_key}
+
+        [GRADING RUBRIC]
         Max Score: {rubric.get('max_score')}
         Steps Breakdown:
         {json.dumps(rubric.get('criteria_steps'), indent=2)}
 
-        --- STUDENT TRANSCRIBED ANSWER ---
+        [STUDENT TRANSCRIPTION]
         {transcribed_text}
+
+        EVALUATION INSTRUCTIONS:
+        1. Compare the student's logic step-by-step against the REFERENCE ANSWER KEY.
+        2. Check for mathematical equivalence. If the student uses a different but fundamentally correct method to reach the correct final value, treat it as equivalent to the key.
+        3. Use the GRADING RUBRIC strictly to assign points based on your comparison. Do not invent penalty criteria outside the rubric.
+        4. Output your final grading breakdown in the required JSON schema.
         """
 
         # --- ATTEMPT 1: Primary Engine (Gemini 2.5 Flash) ---
@@ -70,9 +79,8 @@ class GradingEngine:
             else:
                 print(f"⚠️ Gemini Error: {error_msg}. Rerouting grading to Groq...")
 
-        # --- ATTEMPT 2: Fallback Engine (Groq Llama 3.3 70B) ---
-        try:
-            print("🟠 Grading Engine: Firing fallback engine: Groq (Llama 3.3 70B)...")
+            # --- ATTEMPT 2: Fallback Engine (Groq GPT-OSS 120B) ---
+            print("🟠 Grading Engine: Firing fallback engine: Groq (openai/gpt-oss-120b)...")
             
             # Groq needs the Pydantic schema injected into the system prompt to enforce structure
             schema_json = json.dumps(EvaluationResult.model_json_schema(), indent=2)
@@ -83,12 +91,13 @@ class GradingEngine:
             {schema_json}
             """
 
+            groq_model = os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-120b")
             chat_completion = self.groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                model="llama-3.3-70b-versatile",
+                model=groq_model,
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )

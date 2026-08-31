@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware # <-- 1. New import
 from fastapi.staticfiles import StaticFiles
 from core.database import ping_database
-from api.routes import exams, auth 
+from api.routes import exams, auth, team 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -17,18 +17,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="GRADEOPS API (MongoDB)", version="1.0", lifespan=lifespan)
 
-# --- 2. ADD THIS CORS CONFIGURATION BLOCK ---
+# --- CORS CONFIGURATION BLOCK ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173", 
+        "http://localhost:5175",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5175",
         "http://127.0.0.1:5173",
-        "http://localhost:5174", # <-- Add this line
-        "http://127.0.0.1:5174"  # <-- And this line
+        "http://127.0.0.1:5174"
     ],
     allow_credentials=True,
-    allow_methods=["*"], # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"], # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 # --------------------------------------------
 # --- 3. ADD THIS STATIC FILES BLOCK ---
@@ -40,6 +42,7 @@ os.makedirs(CROP_DIR, exist_ok=True) # Ensure the folder exists to prevent crash
 app.mount("/api/crops", StaticFiles(directory=CROP_DIR), name="crops")
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(exams.router, prefix="/api/exams", tags=["Exams"])
+app.include_router(team.router, prefix="/api/team", tags=["Team Analytics"])
 
 @app.get("/")
 async def read_root():
@@ -49,4 +52,6 @@ async def read_root():
     }
 
 
-# app.include_router(exams.router, prefix="/api/exams", tags=["Exams"])
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True)
