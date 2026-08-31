@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { examService } from '../services/api';
-import { Users, Download, ArrowRight, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Users, Download, ArrowRight, CheckCircle, Clock, AlertCircle, Zap } from 'lucide-react';
 
 export default function RosterDashboard() {
     const [searchParams] = useSearchParams();
@@ -104,11 +104,36 @@ export default function RosterDashboard() {
         document.body.removeChild(a);
     };
 
-    const getStatusBadge = (status) => {
-        if (status === 'Human Verified') return <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#166534', background: '#dcfce7', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}><CheckCircle size={14} /> Verified</span>;
-        if (status === 'AI Graded') return <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#1d4ed8', background: '#dbeafe', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}><CheckCircle size={14} /> AI Graded</span>;
-        if (status === 'Failed') return <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#991b1b', background: '#fee2e2', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}><AlertCircle size={14} /> Failed</span>;
-        return <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b45309', background: '#fef3c7', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}><Clock size={14} /> Pending</span>;
+    const getStatusBadge = (status, hasFastExit) => {
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                {status === 'Human Verified' && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#166534', background: '#dcfce7', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                        <CheckCircle size={14} /> Verified
+                    </span>
+                )}
+                {status === 'AI Graded' && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#1d4ed8', background: '#dbeafe', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                        <CheckCircle size={14} /> AI Graded
+                    </span>
+                )}
+                {status === 'Failed' && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#991b1b', background: '#fee2e2', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                        <AlertCircle size={14} /> Failed
+                    </span>
+                )}
+                {status === 'Pending AI' && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b45309', background: '#fef3c7', padding: '4px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                        <Clock size={14} /> Pending
+                    </span>
+                )}
+                {hasFastExit && (
+                    <span title="One or more questions triggered the coarse vector gatekeeper (< 0.40 similarity or < 3 words) and exited with 0 pts." style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#475569', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '3px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                        <Zap size={13} color="#0284c7" /> Fast Exit (Blank/Off-Topic)
+                    </span>
+                )}
+            </div>
+        );
     };
 
     return (
@@ -178,7 +203,7 @@ export default function RosterDashboard() {
                             {roster.map((student, idx) => (
                                 <tr key={student.submission_id} style={{ borderBottom: idx === roster.length - 1 ? 'none' : '1px solid #e2e8f0', transition: 'background 0.1s' }}>
                                     <td style={{ padding: '1rem', fontWeight: '500', color: '#0f172a' }}>{student.submission_id}</td>
-                                    <td style={{ padding: '1rem' }}>{getStatusBadge(student.status)}</td>
+                                    <td style={{ padding: '1rem' }}>{getStatusBadge(student.status, student.has_fast_exit)}</td>
                                     <td style={{ padding: '1rem', color: '#64748b' }}>{student.questions_graded || 0}</td>
                                     <td style={{ padding: '1rem', fontWeight: 'bold', color: '#0f172a' }}>{student.total_score || 0} pts</td>
                                     <td style={{ padding: '1rem', textAlign: 'right' }}>

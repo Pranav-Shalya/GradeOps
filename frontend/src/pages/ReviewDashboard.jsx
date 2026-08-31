@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { examService } from '../services/api';
-import { CheckCircle, Crop, AlertCircle, Save, Edit3, AlertTriangle } from 'lucide-react';
+import { CheckCircle, Crop, AlertCircle, Save, Edit3, AlertTriangle, Zap } from 'lucide-react';
 
 export default function ReviewDashboard() {
     const [searchParams] = useSearchParams();
@@ -496,6 +496,26 @@ export default function ReviewDashboard() {
                                     </div>
                                 </div>
                                 
+                                {/* Two-Stage Gatekeeper Fast Exit Indicator */}
+                                {studentData.grades[activeQuestion]?.status === 'fast_exit' && (
+                                    <div style={{
+                                        background: '#f8fafc',
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: '6px',
+                                        padding: '0.65rem 0.85rem',
+                                        marginBottom: '1rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        color: '#334155',
+                                        fontSize: '0.85rem',
+                                        fontWeight: '600'
+                                    }}>
+                                        <Zap size={16} color="#0284c7" />
+                                        <span>⚡ Fast Exit (Blank/Off-Topic) — Coarse vector gatekeeper classified this response with 0 points (0 LLM tokens spent). You can manually override the score above.</span>
+                                    </div>
+                                )}
+
                                 {/* Plagiarism & Logic Similarity Warning Banner */}
                                 {(studentData.grades[activeQuestion]?.similarity_flag || studentData.grades[activeQuestion]?.plagiarism_flag) && (
                                     <div style={{

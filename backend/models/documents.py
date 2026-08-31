@@ -23,6 +23,8 @@ class GradedAnswer(BaseModel):
     # AI Proposal Engine Outputs
     ai_score: Optional[float] = None
     ai_justification: Optional[str] = None
+    status: str = "ai_graded" # "fast_exit", "ai_graded", "human_verified"
+    tokens_used: int = 0
     plagiarism_flag: bool = False
     similarity_score: float = 0.0
     similarity_flag: bool = False
@@ -32,6 +34,7 @@ class GradedAnswer(BaseModel):
     final_score: Optional[float] = None
     final_justification: Optional[str] = None
     reviewed_by: Optional[str] = None  # User ID of the reviewing TA
+    reviewer_email: Optional[str] = None
 
 # --- PRIMARY DOCUMENTS (COLLECTIONS) ---
 
@@ -45,8 +48,10 @@ class UserDocument(BaseModel):
 
 class ExamDocument(BaseModel):
     title: str
-    pdf_path: str              # Path to original bulk file
-    created_by: str            # User ID
+    pdf_path: Optional[str] = None      # Path to original bulk file
+    created_by: str                    # User ID
+    created_by_email: Optional[str] = None
+    answer_key: Optional[str] = None   # Master answer key text
     created_at: datetime = Field(default_factory=datetime.utcnow)
     rubrics: List[RubricCriteria] = []
 

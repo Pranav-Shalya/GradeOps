@@ -38,8 +38,12 @@ class BoundingBox(BaseModel):
 # --- BACKGROUND WORKERS ---
 
 async def process_submissions_worker(exam_id: str, extract_dir: str, pdf_files: list, rubrics_list: list):
-    """Auto-crops and auto-grades the stack of exams in the background."""
+    """Auto-crops and auto-grades the stack of exams in the background using Unified Multimodal Single-Call Grading."""
     rubric_map = {r["question_number"]: r for r in rubrics_list}
+    
+    # Retrieve master exam metadata for reference answer key
+    exam = await db["exams"].find_one({"_id": ObjectId(exam_id)})
+    master_answer_key = exam.get("answer_key") if exam else None
 
     for pdf_file in pdf_files:
         submission_id = os.path.splitext(pdf_file)[0]
@@ -54,25 +58,36 @@ async def process_submissions_worker(exam_id: str, extract_dir: str, pdf_files: 
         try:
             student_grades = {}
             for q_num, rubric_data in rubric_map.items():
-                auto_bounding_boxes = {q_num: (50, 50, 500, 500, 0)} 
+                auto_bounding_box = (50, 50, 500, 500, 0)
                 
-                extracted_slices = vision_engine.process_pdf_submission(pdf_path, submission_id, auto_bounding_boxes)
-                if not extracted_slices:
+                # Fast local slicing without separate OCR API call
+                crop_path = vision_engine.slice_single_crop(pdf_path, submission_id, q_num, auto_bounding_box)
+                if not crop_path or not os.path.exists(crop_path):
                     continue
 
-                transcribed_text = extracted_slices[0]["transcribed_text"]
-                evaluation = await grading_engine.evaluate_answer(transcribed_text, rubric_data)
+                q_answer_key = rubric_data.get("solution") or rubric_data.get("reference_answer") or rubric_data.get("answer_key") or master_answer_key
+                
+                # UNIFIED MULTIMODAL CALL: Vision OCR + Rubric Reasoning in a single request
+                evaluation = await grading_engine.grade_crop_multimodal(
+                    crop_image_path=crop_path,
+                    rubric_data=rubric_data,
+                    answer_key_text=q_answer_key
+                )
+
+                status_tag = "fast_exit" if evaluation.is_blank_or_unattempted else "ai_graded"
 
                 student_grades[q_num] = {
                     "total_score": evaluation.total_score,
                     "justification": evaluation.justification,
                     "step_breakdown": [step.model_dump() for step in evaluation.step_breakdown],
-                    "transcribed_text": transcribed_text,
+                    "transcribed_text": evaluation.transcribed_text,
+                    "crop_image_path": crop_path,
                     "similarity_flag": False,
                     "similarity_matches": [],
                     "similarity_score": 0.0,
                     "plagiarism_flag": False,
-                    "status": "ai_graded"
+                    "status": status_tag,
+                    "tokens_used": 0
                 }
 
             await db["submissions"].update_one(
@@ -311,26 +326,34 @@ async def regrade_manual_crop(
             raise HTTPException(status_code=404, detail="Question not found in rubric.")
 
         pdf_path = os.path.join(UPLOAD_DIR, exam_id, "extracted", f"{submission_id}.pdf")
+        custom_box = (box.x, box.y, box.x + box.w, box.y + box.h, box.page)
         
-        custom_boxes = {question_key: (box.x, box.y, box.x + box.w, box.y + box.h, box.page)}
-        
-        extracted_slices = vision_engine.process_pdf_submission(pdf_path, submission_id, custom_boxes)
-        if not extracted_slices:
-            raise HTTPException(status_code=500, detail="Failed to extract text from crop.")
+        crop_path = vision_engine.slice_single_crop(pdf_path, submission_id, question_key, custom_box)
+        if not crop_path or not os.path.exists(crop_path):
+            raise HTTPException(status_code=500, detail="Failed to slice image crop from PDF.")
 
-        transcribed_text = extracted_slices[0]["transcribed_text"]
-        evaluation = await grading_engine.evaluate_answer(transcribed_text, rubric_map[question_key])
+        q_rubric = rubric_map[question_key]
+        q_answer_key = q_rubric.get("solution") or q_rubric.get("reference_answer") or q_rubric.get("answer_key") or exam.get("answer_key")
+
+        # Unified Multimodal Call: Transcribes and grades the manual crop in one pass
+        evaluation = await grading_engine.grade_crop_multimodal(
+            crop_image_path=crop_path,
+            rubric_data=q_rubric,
+            answer_key_text=q_answer_key
+        )
 
         new_grade_data = {
             "total_score": evaluation.total_score,
             "justification": evaluation.justification,
             "step_breakdown": [step.model_dump() for step in evaluation.step_breakdown],
-            "transcribed_text": transcribed_text,
+            "transcribed_text": evaluation.transcribed_text,
+            "crop_image_path": crop_path,
             "similarity_flag": False,
             "similarity_matches": [],
             "similarity_score": 0.0,
             "plagiarism_flag": False,
-            "status": "ta_regraded"
+            "status": "ta_regraded",
+            "tokens_used": 0
         }
 
         await db["submissions"].update_one(
@@ -389,12 +412,15 @@ async def get_exam_roster(
             else:
                 all_verified = all(q.get("status") == "human_verified" for q in grades.values() if isinstance(q, dict))
                 status = "Human Verified" if all_verified else "AI Graded"
+                
+            has_fast_exit = any(isinstance(q, dict) and q.get("status") == "fast_exit" for q in grades.values())
 
             roster.append({
                 "submission_id": sub.get("submission_id"),
                 "total_score": total_score,
                 "questions_graded": len(grades),
-                "status": status
+                "status": status,
+                "has_fast_exit": has_fast_exit
             })
         roster.sort(key=lambda x: x["submission_id"].lower())
         return {"roster": roster}

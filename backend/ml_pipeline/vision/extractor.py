@@ -25,6 +25,70 @@ class VisionExtractor:
         )
         os.makedirs(self.crop_dir, exist_ok=True)
 
+    def slice_single_crop(self, pdf_path: str, submission_id: str, question_num: str, bbox_info: tuple) -> Optional[str]:
+        """
+        Slices a single bounding box from a PDF and saves the PNG crop to disk.
+        Returns the absolute filepath to the saved crop image.
+        """
+        x0, y0, x1, y1, page_num = bbox_info
+        if not os.path.exists(pdf_path):
+            return None
+
+        doc = fitz.open(pdf_path)
+        if page_num >= doc.page_count or page_num < 0:
+            doc.close()
+            return None
+
+        page = doc.load_page(page_num)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+
+        crop_box = (x0 * 2, y0 * 2, x1 * 2, y1 * 2)
+        cropped_img = img.crop(crop_box)
+
+        crop_filename = f"{submission_id}_q{question_num}.png"
+        crop_filepath = os.path.join(self.crop_dir, crop_filename)
+        cropped_img.save(crop_filepath)
+
+        doc.close()
+        return crop_filepath
+
+    def slice_and_save_crops(self, pdf_path: str, submission_id: str, bounding_boxes: dict) -> List[Dict]:
+        """
+        Fast local PDF slicing: saves image crops to disk without calling external APIs.
+        Returns a list of dicts: [{"question_number": "1a", "crop_image_path": "..."}, ...]
+        """
+        if not os.path.exists(pdf_path):
+            return []
+
+        doc = fitz.open(pdf_path)
+        total_pages = doc.page_count
+        crops = []
+
+        for question_num, bbox_info in bounding_boxes.items():
+            x0, y0, x1, y1, page_num = bbox_info
+            if page_num >= total_pages or page_num < 0:
+                continue
+
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+
+            crop_box = (x0 * 2, y0 * 2, x1 * 2, y1 * 2)
+            cropped_img = img.crop(crop_box)
+
+            crop_filename = f"{submission_id}_q{question_num}.png"
+            crop_filepath = os.path.join(self.crop_dir, crop_filename)
+            cropped_img.save(crop_filepath)
+
+            crops.append({
+                "question_number": question_num,
+                "crop_image_path": crop_filepath
+            })
+
+        doc.close()
+        return crops
+
     def process_pdf_submission(self, pdf_path: str, submission_id: str, bounding_boxes: dict):
         """
         Opens a PDF, extracts specific answer regions as images, and calls the Cloud VLM.
