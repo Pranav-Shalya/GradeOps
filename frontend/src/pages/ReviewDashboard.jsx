@@ -1,7 +1,7 @@
 // frontend/src/pages/ReviewDashboard.jsx
 import { useState, useRef, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { examService } from '../services/api';
+import { examService, API_URL } from '../services/api';
 import { CheckCircle, Crop, AlertCircle, Save, Edit3, AlertTriangle, Zap } from 'lucide-react';
 
 export default function ReviewDashboard() {
@@ -105,7 +105,7 @@ export default function ReviewDashboard() {
                 setActiveQuestion(Object.keys(grades)[0]);
             }
             
-            const imgRes = await fetch(`http://127.0.0.1:8001/api/exams/${eId}/submissions/${sId}/pages/0`);
+            const imgRes = await fetch(`${API_URL}/exams/${eId}/submissions/${sId}/pages/0`);
             if (imgRes.ok) {
                 const blob = await imgRes.blob();
                 setPageImage(URL.createObjectURL(blob));

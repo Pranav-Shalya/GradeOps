@@ -1,8 +1,12 @@
 // frontend/src/services/api.js
 import axios from 'axios';
 
+// Dynamic API URL for local development and cloud production (Vercel / Render)
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
+export const API_URL = `${API_BASE_URL}/api`;
+
 const api = axios.create({
-    baseURL: 'http://127.0.0.1:8001/api', 
+    baseURL: API_URL, 
 });
 
 // --- BULLETPROOF AXIOS INTERCEPTOR ---
@@ -120,7 +124,7 @@ export const attendanceService = {
         return api.put(`/attendance/${courseId}/sessions/${sessionId}/student/${studentId}`, { status, late_policy: latePolicy });
     },
     exportCSVUrl: (courseId, latePolicy = 'lenient') => {
-        return `http://127.0.0.1:8001/api/attendance/${courseId}/export?late_policy=${latePolicy}`;
+        return `${API_URL}/attendance/${courseId}/export?late_policy=${latePolicy}`;
     }
 };
 

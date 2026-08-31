@@ -1,6 +1,6 @@
 // frontend/src/pages/PipelineRunner.jsx
 import { useState, useRef } from 'react';
-import { examService } from '../services/api';
+import { examService, API_URL } from '../services/api';
 import { Target, Play, Image as ImageIcon } from 'lucide-react';
 
 export default function PipelineRunner() {
@@ -110,7 +110,7 @@ export default function PipelineRunner() {
                             {/* The Backend Page Image */}
                             <img 
                                 ref={imageRef}
-                                src={`http://127.0.0.1:8001/api/exams/${examId}/pages/${pageNum}`} 
+                                src={`${API_URL}/exams/${examId}/pages/${pageNum}`} 
                                 alt={`Page ${pageNum}`} 
                                 style={{ display: 'block', maxWidth: '100%', userSelect: 'none' }}
                                 draggable={false}

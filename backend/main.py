@@ -17,23 +17,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="GRADEOPS API (MongoDB)", version="1.0", lifespan=lifespan)
 
-# --- CORS CONFIGURATION BLOCK ---
+# --- DYNAMIC PRODUCTION CORS CONFIGURATION ---
+raw_origins = os.getenv(
+    "CORS_ORIGINS", 
+    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175"
+)
+cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5175",
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5175",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174"
-    ],
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Automatically permit all Vercel preview & production deployments
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 # --------------------------------------------
-# --- 3. ADD THIS STATIC FILES BLOCK ---
+# --- STATIC FILES BLOCK ---
 # Create an absolute path to your crops directory
 CROP_DIR = os.path.join(os.path.dirname(__file__), "data", "crops")
 os.makedirs(CROP_DIR, exist_ok=True) # Ensure the folder exists to prevent crashes
@@ -45,14 +45,24 @@ app.include_router(exams.router, prefix="/api/exams", tags=["Exams"])
 app.include_router(team.router, prefix="/api/team", tags=["Team Analytics"])
 app.include_router(attendance.router, prefix="/api/attendance", tags=["Attendance"])
 
+@app.get("/healthz", tags=["Health"])
+async def health_check():
+    """Cloud Orchestrator (Render/K8s) Health Probe"""
+    return {
+        "status": "healthy",
+        "service": "gradeops-api"
+    }
+
 @app.get("/")
 async def read_root():
     return {
         "status": "GRADEOPS Backend is running!",
-        "engine": "MongoDB Async (Motor)"
+        "engine": "MongoDB Async (Motor)",
+        "service": "gradeops-api"
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True)
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
