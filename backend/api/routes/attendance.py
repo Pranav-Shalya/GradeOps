@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response, Query
 from core.database import db
 from core.security import RoleChecker
 from models.attendance import AttendanceSession, AttendanceRecord, CourseAttendanceSummary
@@ -24,7 +24,7 @@ async def list_available_courses(
         exams = await exam_cursor.to_list(length=100)
         exam_titles = [e.get("title") for e in exams if e.get("title")]
 
-        all_courses = sorted(list(set(distinct_courses + exam_titles + ["PHYS101", "CS101", "MATH201"])))
+        all_courses = sorted(list(set(distinct_courses + exam_titles + ["PHYS101", "CS101", "MATH201", "ME2024"])))
         return {"courses": all_courses}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -36,53 +36,76 @@ async def upload_attendance_sheet(
     file: UploadFile = File(...),
     session_date: Optional[str] = Form(None),
     session_type: Optional[str] = Form("Lecture"),
+    late_policy: Optional[str] = Form("lenient"),
     current_user: dict = Depends(RoleChecker(["INSTRUCTOR", "TA"]))
 ):
     """
-    Ingests an attendance sheet (CSV, XLSX, or Scanned PNG/JPG/PDF via Gemini Vision)
-    and saves the session to MongoDB.
+    Ingests an attendance sheet (CSV, XLSX, or Scanned PNG/JPG/PDF).
+    Supports wide-format multi-date sheets (e.g. 10-day rolling sheets) and unpivots
+    each class into an individual session in MongoDB without overwriting previous sessions.
     """
     try:
         file_bytes = await file.read()
         filename = file.filename or "attendance.csv"
         ext = filename.split(".")[-1].lower()
 
-        # Parse file based on format
+        # Parse file based on format into a list of session payloads
         if ext in ["csv", "xlsx", "xls"]:
-            records = AttendanceService.parse_tabular_file(file_bytes, filename)
+            sessions_parsed = AttendanceService.parse_tabular_file(file_bytes, filename)
         elif ext in ["png", "jpg", "jpeg", "pdf", "webp"]:
-            records = AttendanceService.parse_scanned_sheet_multimodal(file_bytes, filename)
+            sessions_parsed = AttendanceService.parse_scanned_sheet_multimodal(file_bytes, filename)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV, XLSX, PNG, JPG, or PDF.")
 
-        if not records:
+        if not sessions_parsed or not any(s.get("records") for s in sessions_parsed):
             raise HTTPException(status_code=400, detail="Could not extract any student attendance records from the uploaded file.")
 
-        session_id = str(uuid.uuid4())
-        effective_date = session_date or datetime.utcnow().strftime("%Y-%m-%d")
         uploader_role = current_user.get("role", "INSTRUCTOR")
         user_id = str(current_user.get("_id", "system"))
+        fallback_date = session_date or datetime.utcnow().strftime("%Y-%m-%d")
 
-        session_doc = {
-            "session_id": session_id,
-            "course_id": course_id,
-            "session_date": effective_date,
-            "session_type": session_type or "Lecture",
-            "uploaded_by": user_id,
-            "uploader_role": uploader_role,
-            "created_at": datetime.utcnow(),
-            "records": records
-        }
+        ingested_count = 0
+        total_records_count = 0
 
-        await db["attendance_sessions"].insert_one(session_doc)
+        # Upsert each session by (course_id, session_date) for rolling sheet support
+        for idx, sess in enumerate(sessions_parsed):
+            records = sess.get("records", [])
+            if not records:
+                continue
 
-        # Calculate updated course summary
-        summary = await AttendanceService.calculate_course_summary(course_id, db)
+            sess_date = sess.get("session_date") or (
+                fallback_date if len(sessions_parsed) == 1 else f"{fallback_date}_session_{idx+1}"
+            )
+            s_type = sess.get("session_type") or session_type or "Lecture"
+
+            await db["attendance_sessions"].update_one(
+                {"course_id": course_id, "session_date": sess_date},
+                {
+                    "$set": {
+                        "course_id": course_id,
+                        "session_date": sess_date,
+                        "session_type": s_type,
+                        "uploaded_by": user_id,
+                        "uploader_role": uploader_role,
+                        "created_at": datetime.utcnow(),
+                        "records": records
+                    },
+                    "$setOnInsert": {
+                        "session_id": str(uuid.uuid4())
+                    }
+                },
+                upsert=True
+            )
+            ingested_count += 1
+            total_records_count += len(records)
+
+        # Calculate updated course summary under the active policy
+        summary = await AttendanceService.calculate_course_summary(course_id, db, late_policy=late_policy or "lenient")
 
         return {
-            "message": f"Successfully ingested {len(records)} student records for {session_type} on {effective_date}.",
-            "session_id": session_id,
-            "records_count": len(records),
+            "message": f"Successfully ingested {ingested_count} session(s) with {total_records_count} student entries for {course_id}.",
+            "sessions_ingested": ingested_count,
+            "total_records": total_records_count,
             "summary": summary
         }
     except HTTPException:
@@ -94,11 +117,12 @@ async def upload_attendance_sheet(
 @router.get("/{course_id}/summary")
 async def get_course_attendance_summary(
     course_id: str,
+    late_policy: str = Query("lenient", description="Policy for handling Late status: 'lenient' (Late=1) or 'strict' (Late=0)"),
     current_user: dict = Depends(RoleChecker(["INSTRUCTOR", "TA"]))
 ):
-    """Returns the cumulative attendance statistics, class averages, and 75% shortage list."""
+    """Returns the cumulative attendance statistics, class averages, and dual policy shortage calculations."""
     try:
-        summary = await AttendanceService.calculate_course_summary(course_id, db)
+        summary = await AttendanceService.calculate_course_summary(course_id, db, late_policy=late_policy)
         return summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -111,8 +135,8 @@ async def get_course_sessions(
 ):
     """Returns all recorded attendance sessions for a course."""
     try:
-        cursor = db["attendance_sessions"].find({"course_id": course_id}).sort("session_date", -1)
-        sessions = await cursor.to_list(length=500)
+        cursor = db["attendance_sessions"].find({"course_id": course_id}).sort("session_date", 1)
+        sessions = await cursor.to_list(length=1000)
         
         formatted = []
         for s in sessions:
@@ -137,10 +161,10 @@ async def toggle_student_attendance(
     payload: Dict[str, Any],
     current_user: dict = Depends(RoleChecker(["INSTRUCTOR", "TA"]))
 ):
-    """Allows manual override of a student's attendance for a specific session."""
-    new_status = payload.get("status", "Present")
-    if new_status not in ["Present", "Absent"]:
-        raise HTTPException(status_code=400, detail="Status must be 'Present' or 'Absent'.")
+    """Allows manual override / toggle of a student's attendance (Present <-> Late <-> Absent) for a specific session."""
+    raw_status = payload.get("status", "Present")
+    new_status = AttendanceService.normalize_status(raw_status)
+    late_policy = payload.get("late_policy", "lenient")
 
     try:
         result = await db["attendance_sessions"].update_one(
@@ -155,8 +179,16 @@ async def toggle_student_attendance(
                 {"$push": {"records": {"student_id": student_id, "name": student_id, "status": new_status}}}
             )
 
-        summary = await AttendanceService.calculate_course_summary(course_id, db)
-        return {"message": f"Updated {student_id} to {new_status}", "summary": summary}
+        summary = await AttendanceService.calculate_course_summary(course_id, db, late_policy=late_policy)
+        
+        # Find updated student record
+        updated_student = next((s for s in summary.get("students", []) if s["student_id"] == student_id), None)
+
+        return {
+            "message": f"Updated {student_id} to {new_status}",
+            "summary": summary,
+            "student": updated_student
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -164,20 +196,24 @@ async def toggle_student_attendance(
 @router.get("/{course_id}/export")
 async def export_attendance_ledger_csv(
     course_id: str,
+    late_policy: str = Query("lenient", description="Active late policy for the CSV export"),
     current_user: dict = Depends(RoleChecker(["INSTRUCTOR", "TA"]))
 ):
-    """Generates and downloads a CSV export of the complete attendance ledger."""
+    """Generates and downloads a CSV export of the complete attendance ledger with dual policy breakdowns."""
     try:
-        summary = await AttendanceService.calculate_course_summary(course_id, db)
+        summary = await AttendanceService.calculate_course_summary(course_id, db, late_policy=late_policy)
         students = summary.get("students", [])
 
         headers = [
-            "Student ID / Roll No",
+            "Roll Number",
             "Student Name",
-            "Attended Sessions",
             "Total Sessions",
-            "Attendance Percentage",
-            "Eligibility Status",
+            "Present (P)",
+            "Late (L)",
+            "Absent (A)",
+            "Strict % (Late=0)",
+            "Lenient % (Late=1)",
+            f"Active Status ({late_policy.upper()})",
             "Classes Needed for 75%"
         ]
 
@@ -187,16 +223,19 @@ async def export_attendance_ledger_csv(
             row = [
                 f'"{s["student_id"]}"',
                 f'"{s["name"] or s["student_id"]}"',
-                str(s["attended_sessions"]),
                 str(s["total_sessions"]),
-                f'{s["percentage"]}%',
+                str(s["present_count"]),
+                str(s["late_count"]),
+                str(s["absent_count"]),
+                f'{s["percentage_strict"]}%',
+                f'{s["percentage_lenient"]}%',
                 f'"{status_label}"',
                 str(s.get("classes_needed_for_75", 0))
             ]
             rows.append(",".join(row))
 
         csv_text = "\n".join(rows)
-        filename = f"{course_id}_Attendance_Ledger.csv"
+        filename = f"{course_id}_Attendance_Ledger_{late_policy.upper()}.csv"
 
         return Response(
             content=csv_text,

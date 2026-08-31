@@ -105,8 +105,8 @@ export const attendanceService = {
     getCourses: () => {
         return api.get('/attendance/courses');
     },
-    getSummary: (courseId) => {
-        return api.get(`/attendance/${courseId}/summary`);
+    getSummary: (courseId, latePolicy = 'lenient') => {
+        return api.get(`/attendance/${courseId}/summary?late_policy=${latePolicy}`);
     },
     getSessions: (courseId) => {
         return api.get(`/attendance/${courseId}/sessions`);
@@ -116,11 +116,11 @@ export const attendanceService = {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
     },
-    toggleStudent: (courseId, sessionId, studentId, status) => {
-        return api.put(`/attendance/${courseId}/sessions/${sessionId}/student/${studentId}`, { status });
+    toggleStudent: (courseId, sessionId, studentId, status, latePolicy = 'lenient') => {
+        return api.put(`/attendance/${courseId}/sessions/${sessionId}/student/${studentId}`, { status, late_policy: latePolicy });
     },
-    exportCSVUrl: (courseId) => {
-        return `http://127.0.0.1:8001/api/attendance/${courseId}/export`;
+    exportCSVUrl: (courseId, latePolicy = 'lenient') => {
+        return `http://127.0.0.1:8001/api/attendance/${courseId}/export?late_policy=${latePolicy}`;
     }
 };
 

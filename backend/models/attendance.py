@@ -1,13 +1,13 @@
 # backend/models/attendance.py
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 
 class AttendanceRecord(BaseModel):
     student_id: str = Field(description="Student Roll Number or ID")
     name: Optional[str] = Field(default=None, description="Student Full Name")
-    status: str = Field(default="Present", description="Attendance Status: 'Present' or 'Absent'")
+    status: Literal["Present", "Absent", "Late"] = Field(default="Present", description="Attendance Status: 'Present', 'Absent', or 'Late'")
 
 
 class AttendanceSession(BaseModel):
@@ -21,14 +21,37 @@ class AttendanceSession(BaseModel):
     records: List[AttendanceRecord] = Field(default_factory=list)
 
 
+class StudentSessionHistory(BaseModel):
+    session_id: str
+    session_date: str
+    session_type: str = "Lecture"
+    status: str = "Present" # "Present" | "Late" | "Absent"
+
+
 class StudentAttendanceSummary(BaseModel):
     student_id: str
     name: Optional[str] = None
-    attended_sessions: int
     total_sessions: int
-    percentage: float
-    is_shortage: bool
+    present_count: int = 0
+    late_count: int = 0
+    absent_count: int = 0
+    
+    # Dual Policies
+    percentage_strict: float = 0.0    # Late = Absent (0 credit)
+    percentage_lenient: float = 0.0   # Late = Present (1 credit)
+    is_shortage_strict: bool = False
+    is_shortage_lenient: bool = False
+    needed_strict: int = 0
+    needed_lenient: int = 0
+    
+    # Active Policy View (defaults to lenient)
+    attended_sessions: int = 0
+    percentage: float = 0.0
+    is_shortage: bool = False
     classes_needed_for_75: int = 0
+    
+    # Chronological session history
+    session_history: List[StudentSessionHistory] = []
 
 
 class CourseAttendanceSummary(BaseModel):
@@ -39,4 +62,5 @@ class CourseAttendanceSummary(BaseModel):
     shortage_count: int
     safe_count: int
     class_average_pct: float
+    late_policy: str = "lenient" # "lenient" | "strict"
     students: List[StudentAttendanceSummary] = []
