@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware # <-- 1. New import
 from fastapi.staticfiles import StaticFiles
 from core.database import ping_database
-from api.routes import exams, auth, team 
+from api.routes import exams, auth, team, attendance
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,6 +43,7 @@ app.mount("/api/crops", StaticFiles(directory=CROP_DIR), name="crops")
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(exams.router, prefix="/api/exams", tags=["Exams"])
 app.include_router(team.router, prefix="/api/team", tags=["Team Analytics"])
+app.include_router(attendance.router, prefix="/api/attendance", tags=["Attendance"])
 
 @app.get("/")
 async def read_root():

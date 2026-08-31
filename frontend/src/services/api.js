@@ -101,4 +101,27 @@ export const examService = {
     }
 };
 
+export const attendanceService = {
+    getCourses: () => {
+        return api.get('/attendance/courses');
+    },
+    getSummary: (courseId) => {
+        return api.get(`/attendance/${courseId}/summary`);
+    },
+    getSessions: (courseId) => {
+        return api.get(`/attendance/${courseId}/sessions`);
+    },
+    uploadSheet: (courseId, formData) => {
+        return api.post(`/attendance/${courseId}/upload`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
+    toggleStudent: (courseId, sessionId, studentId, status) => {
+        return api.put(`/attendance/${courseId}/sessions/${sessionId}/student/${studentId}`, { status });
+    },
+    exportCSVUrl: (courseId) => {
+        return `http://127.0.0.1:8001/api/attendance/${courseId}/export`;
+    }
+};
+
 export default api;

@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import InsightsDashboard from './pages/InsightsDashboard';
+import AttendanceLedger from './pages/AttendanceLedger';
 
 export default function App() {
     // Check if the user already has a token in their browser
@@ -24,11 +25,12 @@ export default function App() {
             {isAuthenticated && (
                 <nav style={{ padding: '1rem', background: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between' }}>
                     <div style={{ fontWeight: 'bold', letterSpacing: '1px' }}>GRADEOPS</div>
-                    <div style={{ display: 'flex', gap: '1.5rem' }}>
+                    <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
                           <Link to="/" style={{ color: 'white', textDecoration: 'none' }}>Dashboard</Link>
                           <Link to="/setup" style={{ color: 'white', textDecoration: 'none' }}>Setup Exam</Link>
                           <Link to="/runner" style={{ color: 'white', textDecoration: 'none' }}>Grade Runner</Link>
                           <Link to="/roster" style={{ color: 'white', textDecoration: 'none' }}>Class Roster</Link>
+                          <Link to="/attendance" style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: 'bold' }}>Attendance</Link>
                           <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}>Logout</button>
                     </div>
                 </nav>
@@ -56,6 +58,9 @@ export default function App() {
                     } />
                     <Route path="/roster" element={
                         isAuthenticated ? <RosterDashboard /> : <Navigate to="/login" />
+                    } />
+                    <Route path="/attendance" element={
+                        isAuthenticated ? <AttendanceLedger /> : <Navigate to="/login" />
                     } />
                     <Route path="/insights" element={<InsightsDashboard />} />
                 </Routes>

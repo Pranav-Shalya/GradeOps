@@ -7,6 +7,7 @@ import base64
 from google import genai
 from groq import Groq
 from dotenv import load_dotenv
+from typing import Dict, List, Optional, Tuple
 
 # Load environment variables
 load_dotenv()
