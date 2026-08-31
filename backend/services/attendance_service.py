@@ -3,12 +3,18 @@ import io
 import os
 import math
 import json
-import pandas as pd
+import csv
 from PIL import Image
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from google import genai
 from groq import Groq
+
+# Safe pandas import
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 # Safe PyMuPDF import
 try:
@@ -47,6 +53,54 @@ class AttendanceService:
         Handles both Single-Session format (Roll No, Name, Status) and Multi-Date Matrix format.
         """
         ext = os.path.splitext(filename)[1].lower()
+
+        # If pandas is not installed or file is plain CSV, support built-in csv parsing
+        if pd is None and ext not in ['.xlsx', '.xls']:
+            try:
+                text_content = file_bytes.decode('utf-8', errors='ignore')
+                reader = csv.reader(io.StringIO(text_content))
+                rows = [r for r in reader if r and any(cell.strip() for cell in r)]
+                if not rows:
+                    return []
+                
+                headers = [h.strip() for h in rows[0]]
+                records = []
+                
+                # Detect ID col and status col
+                id_idx = 0
+                name_idx = None
+                status_idx = None
+                for idx, h in enumerate(headers):
+                    hl = h.lower().replace("_", "").replace(" ", "")
+                    if hl in ["rollno", "rollnumber", "studentid", "studentno", "id", "roll", "regno", "usn"]:
+                        id_idx = idx
+                    elif hl in ["name", "studentname", "fullname", "student"]:
+                        name_idx = idx
+                    elif hl in ["status", "attendance", "presentabsent", "attendance_status", "attend"]:
+                        status_idx = idx
+
+                if status_idx is None:
+                    status_idx = len(headers) - 1
+
+                for row in rows[1:]:
+                    if len(row) <= id_idx:
+                        continue
+                    raw_id = row[id_idx].strip()
+                    if not raw_id:
+                        continue
+                    raw_name = row[name_idx].strip() if name_idx is not None and len(row) > name_idx else ""
+                    raw_status = row[status_idx].strip().lower() if len(row) > status_idx else "present"
+                    is_present = raw_status in ["p", "present", "1", "1.0", "true", "yes", "y", "attended"]
+                    records.append({
+                        "student_id": raw_id,
+                        "name": raw_name or None,
+                        "status": "Present" if is_present else "Absent"
+                    })
+                return records
+            except Exception as csv_err:
+                print(f"⚠️ Built-in CSV parser error: {csv_err}")
+                return []
+
         if ext in ['.xlsx', '.xls']:
             df = pd.read_excel(io.BytesIO(file_bytes))
         else:
